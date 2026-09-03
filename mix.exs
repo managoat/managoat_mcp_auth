@@ -1,7 +1,7 @@
 defmodule Managoat.McpAuth.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/managoat/managoat_mcp_auth"
 
   def project do
@@ -16,7 +16,7 @@ defmodule Managoat.McpAuth.MixProject do
       source_url: @source_url,
       docs: docs(),
       dialyzer: dialyzer(),
-      test_coverage: [summary: [threshold: 70]]
+      test_coverage: [summary: [threshold: 100]]
     ]
   end
 

@@ -128,6 +128,127 @@ defmodule Managoat.McpAuth.DiscoveryTest do
       assert {:error, :no_authorization_server} =
                McpAuth.discover("https://mcp.example/mcp")
     end
+
+    test "a root resource uses the origin well-known path and accepts JSON text" do
+      Req.Test.stub(stub_name(), fn req ->
+        case req.request_path do
+          "/" ->
+            Plug.Conn.send_resp(req, 200, "")
+
+          "/.well-known/oauth-protected-resource" ->
+            Plug.Conn.send_resp(
+              req,
+              200,
+              Jason.encode!(%{"authorization_servers" => ["https://auth.example"]})
+            )
+
+          "/.well-known/oauth-authorization-server" ->
+            Plug.Conn.send_resp(
+              req,
+              200,
+              Jason.encode!(%{
+                "authorization_endpoint" => "https://auth.example/authorize",
+                "token_endpoint" => "https://auth.example/token",
+                "scopes_supported" => ["server:scope"]
+              })
+            )
+        end
+      end)
+
+      assert {:ok, md} = McpAuth.discover("https://mcp.example/")
+      assert md["resource"] == "https://mcp.example/"
+      assert md["issuer"] == "https://auth.example"
+      assert md["scopes"] == ["server:scope"]
+    end
+
+    test "ignores unrelated authentication challenges" do
+      Req.Test.stub(stub_name(), fn req ->
+        case req.request_path do
+          "/mcp" ->
+            req
+            |> Plug.Conn.put_resp_header("www-authenticate", ~s(Basic realm="example"))
+            |> Plug.Conn.send_resp(401, "")
+
+          "/.well-known/oauth-protected-resource/mcp" ->
+            Req.Test.json(req, %{"authorization_servers" => ["https://auth.example"]})
+
+          "/.well-known/oauth-authorization-server" ->
+            Req.Test.json(req, %{
+              "authorization_endpoint" => "https://auth.example/authorize",
+              "token_endpoint" => "https://auth.example/token"
+            })
+        end
+      end)
+
+      assert {:ok, _} = McpAuth.discover("https://mcp.example/mcp")
+    end
+
+    test "reports server status and transport failures" do
+      Req.Test.stub(stub_name(), &Plug.Conn.send_resp(&1, 500, "failed"))
+      assert {:error, {:mcp_server, 500}} = McpAuth.discover("https://mcp.example/mcp")
+
+      Req.Test.stub(stub_name(), &Req.Test.transport_error(&1, :timeout))
+
+      assert {:error, {:mcp_server, %Req.TransportError{reason: :timeout}}} =
+               McpAuth.discover("https://mcp.example/mcp")
+    end
+
+    test "rejects invalid JSON and incomplete authorization metadata" do
+      Req.Test.stub(stub_name(), fn req ->
+        case req.request_path do
+          "/mcp" ->
+            req
+            |> Plug.Conn.put_resp_header(
+              "www-authenticate",
+              ~s(Bearer resource_metadata="https://mcp.example/bad-metadata")
+            )
+            |> Plug.Conn.send_resp(401, "")
+
+          "/bad-metadata" ->
+            Plug.Conn.send_resp(req, 200, "not json")
+        end
+      end)
+
+      assert {:error, {:metadata, "https://mcp.example/bad-metadata", :not_json}} =
+               McpAuth.discover("https://mcp.example/mcp")
+
+      Req.Test.stub(stub_name(), fn req ->
+        case req.request_path do
+          "/mcp" ->
+            Plug.Conn.send_resp(req, 401, "")
+
+          "/.well-known/oauth-protected-resource/mcp" ->
+            Req.Test.json(req, %{"authorization_servers" => ["https://auth.example"]})
+
+          "/.well-known/oauth-authorization-server" ->
+            Req.Test.json(req, %{"authorization_endpoint" => "https://auth.example/authorize"})
+        end
+      end)
+
+      assert {:error, :incomplete_authorization_server_metadata} =
+               McpAuth.discover("https://mcp.example/mcp")
+    end
+
+    test "reports a transport failure while fetching metadata" do
+      Req.Test.stub(stub_name(), fn req ->
+        case req.request_path do
+          "/mcp" ->
+            req
+            |> Plug.Conn.put_resp_header(
+              "www-authenticate",
+              ~s(Bearer resource_metadata="https://mcp.example/metadata")
+            )
+            |> Plug.Conn.send_resp(401, "")
+
+          "/metadata" ->
+            Req.Test.transport_error(req, :timeout)
+        end
+      end)
+
+      assert {:error,
+              {:metadata, "https://mcp.example/metadata", %Req.TransportError{reason: :timeout}}} =
+               McpAuth.discover("https://mcp.example/mcp")
+    end
   end
 
   describe "register/3" do
@@ -162,6 +283,59 @@ defmodule Managoat.McpAuth.DiscoveryTest do
       assert_raise KeyError, fn ->
         McpAuth.register(md, "https://client.example/cb", client_name: "Example client")
       end
+    end
+
+    test "negotiates public and basic clients from server capabilities" do
+      Req.Test.stub(stub_name(), fn req ->
+        {:ok, body, _} = Plug.Conn.read_body(req)
+        registration = Jason.decode!(body)
+
+        case registration["client_name"] do
+          "Basic client" ->
+            assert registration["token_endpoint_auth_method"] == "client_secret_basic"
+            Req.Test.json(req, %{"client_id" => "basic", "client_secret" => "secret"})
+
+          "Public client" ->
+            assert registration["token_endpoint_auth_method"] == "none"
+            Req.Test.json(req, %{"client_id" => "public"})
+        end
+      end)
+
+      base = %{"registration_endpoint" => "https://auth.example/register", "scopes" => []}
+      opts = [client_uri: "https://client.example"]
+
+      assert {:ok, %{"token_endpoint_auth" => "client_secret_post"}} =
+               McpAuth.register(
+                 Map.put(base, "token_endpoint_auth_methods_supported", ["client_secret_basic"]),
+                 "https://client.example/cb",
+                 Keyword.put(opts, :client_name, "Basic client")
+               )
+
+      assert {:ok, %{"token_endpoint_auth" => "none", "client_secret" => nil}} =
+               McpAuth.register(
+                 Map.put(base, "token_endpoint_auth_methods_supported", ["none"]),
+                 "https://client.example/cb",
+                 Keyword.put(opts, :client_name, "Public client")
+               )
+    end
+
+    test "defaults registration auth and reports HTTP and transport failures" do
+      base = %{"registration_endpoint" => "https://auth.example/register", "scopes" => []}
+      opts = [client_name: "Example", client_uri: "https://client.example"]
+
+      Req.Test.stub(stub_name(), fn req ->
+        {:ok, body, _} = Plug.Conn.read_body(req)
+        assert Jason.decode!(body)["token_endpoint_auth_method"] == "client_secret_post"
+        Req.Test.json(Plug.Conn.put_status(req, 422), %{"error" => "invalid_client"})
+      end)
+
+      assert {:error, {:registration, 422, %{"error" => "invalid_client"}}} =
+               McpAuth.register(base, "https://client.example/cb", opts)
+
+      Req.Test.stub(stub_name(), &Req.Test.transport_error(&1, :timeout))
+
+      assert {:error, {:registration, %Req.TransportError{reason: :timeout}}} =
+               McpAuth.register(base, "https://client.example/cb", opts)
     end
   end
 

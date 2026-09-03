@@ -10,6 +10,14 @@ the package ships without a bump fails the release gate.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-03
+
+### Changed
+
+- Expanded coverage of discovery fallbacks, malformed and failed provider
+  responses, registration negotiation, and every private-address class in the
+  URL guard, and raised the coverage gate from 70% to 100%.
+
 ## [0.1.0] - 2026-09-02
 
 ### Added
