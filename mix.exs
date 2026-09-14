@@ -1,7 +1,7 @@
 defmodule Managoat.McpAuth.MixProject do
   use Mix.Project
 
-  @version "0.1.1"
+  @version "0.2.0"
   @source_url "https://github.com/managoat/managoat_mcp_auth"
 
   def project do
@@ -12,7 +12,8 @@ defmodule Managoat.McpAuth.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      description: "MCP authorization discovery with a server-side URL guard.",
+      description:
+        "MCP authorization: discovery, registration and the OAuth client, behind a server-side URL guard.",
       package: package(),
       source_url: @source_url,
       docs: docs(),

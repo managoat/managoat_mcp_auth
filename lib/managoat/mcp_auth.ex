@@ -6,7 +6,10 @@ defmodule Managoat.McpAuth do
   RFC 9728 protected-resource metadata from the server's challenge or
   well-known URL, RFC 8414 authorization-server metadata with the OpenID
   discovery fallback, and RFC 7591 dynamic client registration through
-  `register/3` when the server offers it.
+  `register/3` when the server offers it. `Managoat.McpAuth.Client` then
+  runs the authorization-code flow against what was discovered (or against
+  any OAuth 2.0 provider a user configured), driven by a
+  `Managoat.McpAuth.Client.Config`.
 
   Every URL in that chain passes through `Managoat.McpAuth.UrlGuard`. The
   guard requires HTTPS and a public hostname, including for URLs supplied by
