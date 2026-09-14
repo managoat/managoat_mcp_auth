@@ -11,7 +11,7 @@ release, and the traps.
 
 ## What this repository is
 
-> MCP authorization discovery with a server-side URL guard.
+> MCP authorization: discovery, registration and the OAuth client, behind a server-side URL guard.
 
 [`managoat_mcp_auth`](https://hex.pm/packages/managoat_mcp_auth) on hex,
 `Managoat.McpAuth` in the code, Apache-2.0 throughout. It was extracted from
@@ -32,7 +32,7 @@ error, not a silent default that happens to suit Fountain.
 ```bash
 mise install        # Erlang/OTP 28.3 + Elixir 1.19.2, from .tool-versions
 mix deps.get
-mix test            # 5 test files
+mix test            # 6 test files
 mix precommit       # the whole CI gate, locally
 ```
 
@@ -43,8 +43,8 @@ on them.
 ## Repo layout
 
 ```
-lib/                    3 modules — README.md is the guide to them
-test/                   5 test files, mirroring lib/
+lib/                    5 modules — README.md is the guide to them
+test/                   6 test files, mirroring lib/
 scripts/release.exs     the facts about a release, shared by the PR gate
                         and the publish workflow (no dependencies: it runs
                         before `mix deps.get` in both)
@@ -84,7 +84,8 @@ Read the output rather than trusting the exit code, and confirm you reached
 
 `mix test --cover` gates at **100%**, configured in `mix.exs`.
 
-Three modules, one of which is a security guard. There is no line here that
+Five modules, one of which is a security guard and one an HTTP client whose
+every branch is a provider quirk somebody hit. There is no line here that
 cannot be reached by a test, so the gate is the whole file.
 
 The threshold is a ratchet. Raise it as the suite grows; never lower it to turn
